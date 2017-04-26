@@ -563,15 +563,46 @@ function cloneCanvasContents(canvas, clonedCanvas) {
     }
 }
 
-function cloneNode(node, javascriptEnabled) {
-    var clone = node.nodeType === 3 ? document.createTextNode(node.nodeValue) : node.cloneNode(false);
-
+function cloneNode(node, javascriptEnabled, numItems) {
+	var clone;
+	if(node.nodeName === "IFRAME") {
+		clone = document.createElement('img');
+		var src = node.src;
+    	if(src.includes("youtube.com")){
+    		src = "https://collabrify-backend.appspot.com/proxy?url=https://img.youtube.com/vi/" + src.substr(30, src.length-31) + "/maxresdefault.jpg";
+    	}
+    	else if(src.includes("drive.google.com")) {
+    		src = "https://collabrify-backend.appspot.com/proxy?url=https://drive.google.com/thumbnail?authuser=0&sz=w640-h360-n-k-rw&id=" + src.substr(32, src.length-40);
+    	}
+    	else {
+    		console.log("this iframe not supported");
+    	}
+		clone.src = src;
+		clone.style.width = "100%";
+	}
+	else if(node.nodeName === "IMG"){
+		clone = document.createElement('div');
+		clone.setAttribute("data-imagesrc", node.src);
+		clone.style.width = node.width + "px";
+		clone.style.height = node.height + "px";
+		clone.style.margin = "auto";
+	}
+    else {
+    	clone = node.nodeType === 3 ? document.createTextNode(node.nodeValue) : node.cloneNode(false);
+    }
     var child = node.firstChild;
     while(child) {
         if (javascriptEnabled === true || child.nodeType !== 1 || child.nodeName !== 'SCRIPT') {
-            clone.appendChild(cloneNode(child, javascriptEnabled));
+            clone.appendChild(cloneNode(child, javascriptEnabled, numItems));
         }
         child = child.nextSibling;
+
+        if(child && child.nodeType === 1 && 
+        	((child.hasAttribute('data-itemindexstart') && parseInt(child.getAttribute('data-itemindexstart')) >= numItems) || 
+        	(child.hasAttribute('data-itemindex') && parseInt(child.getAttribute('data-itemindex')) >= numItems))){
+			child = false;
+		}
+		
     }
 
     if (node.nodeType === 1) {
@@ -601,11 +632,11 @@ function initNode(node) {
 }
 
 module.exports = function(ownerDocument, containerDocument, width, height, options, x ,y) {
-    var documentElement = cloneNode(ownerDocument, options.javascriptEnabled);
+    var documentElement = cloneNode(ownerDocument, options.javascriptEnabled, options.numItems);
     var html = containerDocument.createElement("html");
     var body = containerDocument.createElement("body");
     body.appendChild(documentElement);
-    var head = cloneNode(containerDocument.head, options.javascriptEnabled)
+    var head = cloneNode(containerDocument.head, options.javascriptEnabled, options.numItems)
     html.appendChild(head);
     html.appendChild(body);
     documentElement = html;
@@ -1005,7 +1036,7 @@ function renderDocument(nodeIn, options, windowWidth, windowHeight, html2canvasI
         log("Document cloned");
         var attributeName = html2canvasNodeAttribute + html2canvasIndex;
         var selector = "[" + attributeName + "='" + html2canvasIndex + "']";
-        //nodeIn.querySelector(selector).removeAttribute(attributeName);
+        nodeIn.removeAttribute(attributeName);
         var clonedWindow = container.contentWindow;
         var node = clonedWindow.document.querySelector(selector);
         var oncloneHandler = (typeof(options.onclone) === "function") ? Promise.resolve(options.onclone(clonedWindow.document)) : Promise.resolve(true);
@@ -1030,13 +1061,10 @@ function renderWindow(node, container, options, windowWidth, windowHeight) {
         var canvas;
 
         if (options.type === "view") {
-        	console.log("option 1");
             canvas = crop(renderer.canvas, {width: renderer.canvas.width, height: renderer.canvas.height, top: 0, left: 0, x: 0, y: 0});
         } else if (node === clonedWindow.document.body || node === clonedWindow.document.documentElement || options.canvas != null) {
-            console.log("option 2");
             canvas = renderer.canvas;
         } else {
-            console.log("option 3");
             canvas = crop(renderer.canvas, {width:  options.width != null ? options.width : bounds.width, height: options.height != null ? options.height : bounds.height, top: bounds.top, left: bounds.left, x: 0, y: 0});
         }
 
@@ -1294,8 +1322,15 @@ ImageLoader.prototype.findImages = function(nodes) {
         case "IFRAME":
             return imageNodes.concat([{
                 args: [container.node],
-                method: container.node.nodeName
+                method: "url"
             }]);
+        case "DIV":
+        	if(container.node.hasAttribute("data-imagesrc")){
+        		return imageNodes.concat([{
+	                args: [container.node.getAttribute("data-imagesrc")],
+	                method: "url"
+            	}]);
+        	}
         }
         return imageNodes;
     }, []).forEach(this.addImage(images, this.loadImage), this);
@@ -2199,6 +2234,15 @@ NodeParser.prototype.paintElement = function(container) {
         case "TEXTAREA":
             this.paintFormValue(container);
             break;
+        case "DIV":
+        	if(container.node.hasAttribute("data-imagesrc")){
+        		var imageContainer = this.images.get(container.node.getAttribute("data-imagesrc"));
+	            if (imageContainer) {
+	                this.renderer.renderImage(container, bounds, container.borders, imageContainer);
+	            } else {
+	                log("Error loading <img>", container.node.src);
+	            }
+        	}
         }
     }, this);
 };
@@ -2796,7 +2840,8 @@ function documentFromHTML(src) {
 
 function loadUrlDocument(src, proxy, document, width, height, options) {
     return new Proxy(src, proxy, window.document).then(documentFromHTML(src)).then(function(doc) {
-        return createWindowClone(doc, document, width, height, options, 0, 0);
+    	var images = doc.body.getElementsByTagName('img'); 
+        //return createWindowClone(doc, document, width, height, options, 0, 0);
     });
 }
 
