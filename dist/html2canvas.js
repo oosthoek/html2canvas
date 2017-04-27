@@ -563,7 +563,7 @@ function cloneCanvasContents(canvas, clonedCanvas) {
     }
 }
 
-function cloneNode(node, javascriptEnabled, numItems) {
+function cloneNode(node, javascriptEnabled, options) {
 	var clone;
 	if(node.nodeName === "IFRAME") {
 		clone = document.createElement('img');
@@ -583,8 +583,24 @@ function cloneNode(node, javascriptEnabled, numItems) {
 	else if(node.nodeName === "IMG"){
 		clone = document.createElement('div');
 		clone.setAttribute("data-imagesrc", node.src);
-		clone.style.width = node.width + "px";
-		clone.style.height = node.height + "px";
+		//clone.classList.add(node.classList[0]);
+		var maxWidth = width = (options.width * .48375);
+		var maxHeight = 350
+		
+		height = node.height;
+		width = node.width;
+
+		if(height > maxHeight){
+			clone.style.height = maxHeight + "px";
+			clone.style.width = (maxHeight * node.naturalWidth / node.naturalHeight) + "px";
+			
+		}
+		if(width > maxWidth){
+			clone.style.width = maxWidth + "px";
+			clone.style.height = (maxWidth * node.naturalHeight / node.naturalWidth) + "px";
+		}
+		clone.style.width = width + "px";
+		clone.style.height = height + "px";
 		clone.style.margin = "auto";
 	}
     else {
@@ -593,13 +609,13 @@ function cloneNode(node, javascriptEnabled, numItems) {
     var child = node.firstChild;
     while(child) {
         if (javascriptEnabled === true || child.nodeType !== 1 || child.nodeName !== 'SCRIPT') {
-            clone.appendChild(cloneNode(child, javascriptEnabled, numItems));
+            clone.appendChild(cloneNode(child, javascriptEnabled, options));
         }
         child = child.nextSibling;
 
         if(child && child.nodeType === 1 && 
-        	((child.hasAttribute('data-itemindexstart') && parseInt(child.getAttribute('data-itemindexstart')) >= numItems) || 
-        	(child.hasAttribute('data-itemindex') && parseInt(child.getAttribute('data-itemindex')) >= numItems))){
+        	((child.hasAttribute('data-itemindexstart') && parseInt(child.getAttribute('data-itemindexstart')) >= options.numItems) || 
+        	(child.hasAttribute('data-itemindex') && parseInt(child.getAttribute('data-itemindex')) >= options.numItems))){
 			child = false;
 		}
 		
@@ -632,27 +648,38 @@ function initNode(node) {
 }
 
 module.exports = function(ownerDocument, containerDocument, width, height, options, x ,y) {
-    var documentElement = cloneNode(ownerDocument, options.javascriptEnabled, options.numItems);
-    var html = containerDocument.createElement("html");
-    var body = containerDocument.createElement("body");
-    body.appendChild(documentElement);
-    var head = cloneNode(containerDocument.head, options.javascriptEnabled, options.numItems)
-    html.appendChild(head);
-    html.appendChild(body);
-    documentElement = html;
+    var documentElement;
+    var bodyElement = cloneNode(ownerDocument, options.javascriptEnabled, options);
+    
+    var container = document.getElementsByClassName("html2canvas-container");
+    if(container.length){
+    	container = container[0];
+    	documentElement = container.contentWindow.document;
+    	documentElement.body.appendChild(bodyElement);
+    	documentElement = documentElement.documentElement;
 
-    var container = containerDocument.createElement("iframe");
+    }
+    else{
+	   	container = containerDocument.createElement("iframe");
+    	var html = containerDocument.createElement("html");
+	    var body = containerDocument.createElement("body");
+	    body.appendChild(bodyElement);
+	    var head = cloneNode(containerDocument.head, options.javascriptEnabled, options)
+	    html.appendChild(head);
+	    html.appendChild(body);
+	    documentElement = html;
 
-    container.className = "html2canvas-container";
-    container.style.visibility = "hidden";
-    container.style.position = "fixed";
-    container.style.left = "-10000px";
-    container.style.top = "0px";
-    container.style.border = "0";
-    container.width = width;
-    container.height = height;
-    container.scrolling = "no"; // ios won't scroll without it
-    containerDocument.body.appendChild(container);
+	    container.className = "html2canvas-container";
+	    container.style.visibility = "hidden";
+	    container.style.position = "fixed";
+	    container.style.left = "-10000px";
+	    container.style.top = "0px";
+	    container.style.border = "0";
+	    container.width = width;
+	    container.height = height;
+	    container.scrolling = "no"; // ios won't scroll without it
+	    containerDocument.body.appendChild(container);
+	}
 
     return new Promise(function(resolve) {
         var documentClone = container.contentWindow.document;
@@ -1068,7 +1095,7 @@ function renderWindow(node, container, options, windowWidth, windowHeight) {
             canvas = crop(renderer.canvas, {width:  options.width != null ? options.width : bounds.width, height: options.height != null ? options.height : bounds.height, top: bounds.top, left: bounds.left, x: 0, y: 0});
         }
 
-        cleanupContainer(container, options);
+        cleanupContainer(node, options);
         return canvas;
     });
 }
@@ -1092,7 +1119,7 @@ function crop(canvas, bounds) {
     var height = y2-y1;
     log("Cropping canvas at:", "left:", bounds.left, "top:", bounds.top, "width:", width, "height:", height);
     log("Resulting crop with width", bounds.width, "and height", bounds.height, "with x", x1, "and y", y1);
-    croppedCanvas.getContext("2d").drawImage(canvas, x1, y1, width, height, bounds.x, bounds.y, width, height);
+    croppedCanvas.getContext("2d").drawImage(canvas,  Math.floor(x1),  Math.floor(y1),  Math.floor(width),  Math.floor(height),  Math.floor(bounds.x),  Math.floor(bounds.y),  Math.floor(width),  Math.floor(height));
     return croppedCanvas;
 }
 
@@ -2938,12 +2965,12 @@ Renderer.prototype.renderImage = function(container, bounds, borderData, imageCo
         imageContainer,
         0,
         0,
-        imageContainer.image.width || width,
-        imageContainer.image.height || height,
-        bounds.left + paddingLeft + borders[3].width,
-        bounds.top + paddingTop + borders[0].width,
-        width,
-        height
+        Math.floor(imageContainer.image.width) || Math.floor(width),
+        Math.floor(imageContainer.image.height) || Math.floor(height),
+        Math.floor(bounds.left + paddingLeft + borders[3].width),
+        Math.floor(bounds.top + paddingTop + borders[0].width),
+        Math.floor(width),
+        Math.floor(height)
     );
 };
 
