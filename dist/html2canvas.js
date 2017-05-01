@@ -563,7 +563,10 @@ function cloneCanvasContents(canvas, clonedCanvas) {
     }
 }
 
-function cloneNode(node, javascriptEnabled, options) {
+function cloneNode(node, javascriptEnabled, options, startHeight) {
+	if(startHeight !== null){ cloneNode.accHeight = startHeight;}
+	if(node.nodeType ===1 && node.hasAttribute('data-estimatedHeight') && cloneNode.accHeight >= options.height){
+		return null;}
 	var clone;
 	if(node.nodeName === "IFRAME") {
 		clone = document.createElement('img');
@@ -579,6 +582,8 @@ function cloneNode(node, javascriptEnabled, options) {
     	}
 		clone.src = src;
 		clone.style.width = "100%";
+
+		cloneNode.accHeight += 424;
 	}
 	else if(node.nodeName === "IMG"){
 		clone = document.createElement('div');
@@ -602,22 +607,25 @@ function cloneNode(node, javascriptEnabled, options) {
 		clone.style.width = width + "px";
 		clone.style.height = height + "px";
 		clone.style.margin = "auto";
+
+		cloneNode.accHeight += height;
 	}
     else {
     	clone = node.nodeType === 3 ? document.createTextNode(node.nodeValue) : node.cloneNode(false);
     }
+    //update current size
+	if(node.nodeType === 1 && node.hasAttribute('data-estimatedHeight')){
+		cloneNode.accHeight += parseFloat(node.getAttribute('data-estimatedHeight'));
+	}
+
     var child = node.firstChild;
     while(child) {
         if (javascriptEnabled === true || child.nodeType !== 1 || child.nodeName !== 'SCRIPT') {
-            clone.appendChild(cloneNode(child, javascriptEnabled, options));
+        	var nextNode = cloneNode(child, javascriptEnabled, options, null);
+        	if(nextNode){clone.appendChild(nextNode);}
+        	else{break;}
         }
         child = child.nextSibling;
-
-        if(child && child.nodeType === 1 && 
-        	((child.hasAttribute('data-itemindexstart') && parseInt(child.getAttribute('data-itemindexstart')) >= options.numItems) || 
-        	(child.hasAttribute('data-itemindex') && parseInt(child.getAttribute('data-itemindex')) >= options.numItems))){
-			child = false;
-		}
 		
     }
 
@@ -649,7 +657,7 @@ function initNode(node) {
 
 module.exports = function(ownerDocument, containerDocument, width, height, options, x ,y) {
     var documentElement;
-    var bodyElement = cloneNode(ownerDocument, options.javascriptEnabled, options);
+    var bodyElement = cloneNode(ownerDocument, options.javascriptEnabled, options, 0);
     
     var container = document.getElementsByClassName("html2canvas-container");
     if(container.length){
@@ -1075,8 +1083,8 @@ function renderDocument(nodeIn, options, windowWidth, windowHeight, html2canvasI
 
 function renderWindow(node, container, options, windowWidth, windowHeight) {
     var clonedWindow = container.contentWindow;
-    //var support = new Support(clonedWindow.document);
-    var support = true;
+    var support = new Support(clonedWindow.document);
+    //var support = true;
     var imageLoader = new ImageLoader(options, support);
     var bounds = getBounds(node);
     var width = options.type === "view" ? windowWidth : documentWidth(clonedWindow.document);
@@ -2341,8 +2349,10 @@ NodeParser.prototype.paintFormValue = function(container) {
 
 NodeParser.prototype.paintText = function(container) {
     container.applyTextTransform();
+    //insert a new line at end of every sentence
+
     var characters = punycode.ucs2.decode(container.node.data);
-    var textList = (!this.options.letterRendering || noLetterSpacing(container)) && !hasUnicode(container.node.data) ? getWords(characters) : characters.map(function(character) {
+    var textList = (!this.options.letterRendering || noLetterSpacing(container)) && !hasUnicode(container.node.data) ? getWords(characters, this.renderer.ctx, container.node.parentElement.getBoundingClientRect().width) : characters.map(function(character) {
         return punycode.ucs2.encode([character]);
     });
 
@@ -2737,25 +2747,27 @@ function stripQuotes(content) {
     return (first === content.substr(content.length - 1) && first.match(/'|"/)) ? content.substr(1, content.length - 2) : content;
 }
 
-function getWords(characters) {
-    var words = [], i = 0, onWordBoundary = false, word;
-    while(characters.length) {
-        if (isWordBoundary(characters[i]) === onWordBoundary) {
+function getWords(characters, ctx, width) {
+    var words = [], i = 0, onWordBoundary = false, word, amount;
+    while(characters.length) {    	
+        if (isWordBoundary(characters[i]) === onWordBoundary || i >= characters.length) {
             word = characters.splice(0, i);
             if (word.length) {
-                words.push(punycode.ucs2.encode(word));
-            }
+	            if (ctx.measureText(word).width > width){
+	            	while(word.length) {
+	            		if (word.length < 3) {amount = word.length;}
+	            		else {amount = 3;}
+	            		words.push(punycode.ucs2.encode(word.splice(0, amount)));
+	            	}
+	            }
+	            else{
+	                words.push(punycode.ucs2.encode(word));
+	            }
+	        }
             onWordBoundary =! onWordBoundary;
             i = 0;
         } else {
             i++;
-        }
-
-        if (i >= characters.length) {
-            word = characters.splice(0, i);
-            if (word.length) {
-                words.push(punycode.ucs2.encode(word));
-            }
         }
     }
     return words;
